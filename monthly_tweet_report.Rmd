@@ -133,8 +133,8 @@ tweets_tagged <- twitter_raw2 %>%
 
 
 ```{r}
-# set English weekday names for the whole session
-Sys.setlocale("LC_TIME", "C")         # or "en_US.UTF-8" on Linux/macOS
+# ── Pre‑process master data frame ───────────────────────────────────────────
+Sys.setlocale("LC_TIME", "C")   # English weekday names on any platform
 
 df <- tweets_tagged %>% 
   mutate(
@@ -142,33 +142,23 @@ df <- tweets_tagged %>%
     month   = lubridate::month(date),
     year    = lubridate::year(date),
     hour    = lubridate::hour(date),
-    weekday = lubridate::wday(date, label = TRUE,
-                              abbr  = FALSE,
-                              week_start = 1)
+    weekday = lubridate::wday(date, label = TRUE, abbr = FALSE, week_start = 1)
   ) %>% 
   filter(post_type != "other")
 
-
-
-# 3) Add day, month, year, etc. for easy filtering
-# ── Define the 7‑day window -----------------------------------------------
-week_start <- as.Date(params$week_start)           # Monday
-week_end   <- week_start + lubridate::days(6)      # Sunday
-
-# --- Monthly window ----------------------------------------------------------
-df_month <- df %>%
+# ── Restrict to the current calendar month ─────────────────────────────────
+df_month <- df %>% 
   filter(date >= month_start,
-         date <  ceiling_date(month_start, "month")) %>%
+         date <  lubridate::ceiling_date(month_start, "month")) %>% 
   mutate(
-    month_day  = wday(date, label = TRUE, abbr = FALSE, locale = "en_US"),
-    month_hour = hour(date)
+    month_day  = lubridate::wday(date, label = TRUE, abbr = FALSE, week_start = 1),
+    month_hour = lubridate::hour(date)
   )
 
 if (nrow(df_month) == 0) {
   cat("\n\n### No tweets in", month_label, "– nothing to report.\n\n")
   knitr::knit_exit()
 }
-
 
 ```
 
