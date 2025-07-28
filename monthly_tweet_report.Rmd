@@ -510,24 +510,28 @@ ggplot(views_by_type, aes(x = post_type, y = avg_views, fill = post_type)) +
 # Average Engagement by Day and Hour (Log Scale)
 
 ```{r,message=F,warning=F}
-Sys.setlocale("LC_TIME", "C")
+# ── Average Engagement by Day & Hour (log‑scale heat‑map) ───────────────────
+Sys.setlocale("LC_TIME", "C")          # keep weekday labels in English
 
-df_heatmap <- df_month %>%
+df_heatmap <- df_month %>% 
   mutate(
-    publish_dt = ymd_hms(date, quiet = TRUE),
-    day  = wday(publish_dt, label = TRUE),
-    hour = hour(publish_dt)
-  ) %>%
-  group_by(day, hour) %>%
-  summarise(mean_engagement = mean(engagement_rate, na.rm = TRUE), .groups = "drop") %>%
+    publish_dt = lubridate::ymd_hms(date, quiet = TRUE),
+    day  = lubridate::wday(publish_dt, label = TRUE, week_start = 1),
+    hour = lubridate::hour(publish_dt)
+  ) %>% 
+  group_by(day, hour) %>% 
+  summarise(mean_engagement = mean(engagement_rate, na.rm = TRUE), .groups = "drop") %>% 
   mutate(log_engagement = log1p(mean_engagement))
 
-ggplot(df_heatmap, aes(x = hour, y = fct_rev(day), fill = log_engagement)) +
+ggplot(df_heatmap, aes(x = hour,
+                       y = forcats::fct_rev(day),
+                       fill = log_engagement)) +
   geom_tile(color = "white") +
-  scale_fill_viridis_c(option = "C", name = "Log Engagement") +
-  labs(title = "Average Engagement by Day and Hour (Log Scale)",
+  scale_fill_viridis_c(option = "C", name = "Log Engagement") +
+  labs(title = "Average Engagement by Day and Hour",
        x = "Hour of Day", y = "Day of Week") +
   theme_minimal()
+
 
 ```
 
@@ -535,28 +539,29 @@ ggplot(df_heatmap, aes(x = hour, y = fct_rev(day), fill = log_engagement)) +
 
 ```{r}
 
-top_times <- df_month %>%
+# ── Top‑10 best times to post (by mean ER) ──────────────────────────────────
+top_times <- df_month %>% 
   mutate(
-    publish_dt = ymd_hms(date, quiet = TRUE),
-    day  = wday(publish_dt, label = TRUE, abbr = FALSE, week_start = 1, locale = "C"),
-    hour = hour(publish_dt)
-  ) %>%
-  group_by(day, hour) %>%
-  summarise(mean_engagement = mean(engagement_rate, na.rm = TRUE), .groups = "drop") %>%
-  arrange(desc(mean_engagement)) %>%
+    publish_dt = lubridate::ymd_hms(date, quiet = TRUE),
+    day  = lubridate::wday(publish_dt, label = TRUE, week_start = 1),
+    hour = lubridate::hour(publish_dt)
+  ) %>% 
+  group_by(day, hour) %>% 
+  summarise(mean_engagement = mean(engagement_rate, na.rm = TRUE), .groups = "drop") %>% 
+  arrange(desc(mean_engagement)) %>% 
   slice_head(n = 10)
 
-top_times %>%
-  knitr::kable(digits = 2, align = "c",
-               caption = "Top 10 Best Times to Post – Engagement Rate") %>%
+top_times %>% 
+  knitr::kable(
+    digits   = 2, align = "c",
+    caption  = "Top 10 Best Times to Post – Engagement Rate"
+  ) %>% 
   kableExtra::kable_styling(
     bootstrap_options = c("striped", "hover", "condensed"),
     full_width = FALSE, position = "center"
-  ) %>%
-  kableExtra::column_spec(1:3, width = "5cm") %>%
+  ) %>% 
+  kableExtra::column_spec(1:3, width = "5cm") %>% 
   kableExtra::row_spec(0, bold = TRUE, color = "white", background = "#000000")
-
-
 
 ```
 
