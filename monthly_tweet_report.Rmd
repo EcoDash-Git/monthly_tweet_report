@@ -139,12 +139,15 @@ Sys.setlocale("LC_TIME", "C")         # or "en_US.UTF-8" on Linux/macOS
 df <- tweets_tagged %>% 
   mutate(
     day     = as.Date(date, tz = "UTC"),
-    month   = month(date),
-    year    = year(date),
-    hour    = hour(date),
-    weekday = wday(date, label = TRUE, abbr = FALSE, week_start = 1)
+    month   = lubridate::month(date),
+    year    = lubridate::year(date),
+    hour    = lubridate::hour(date),
+    weekday = lubridate::wday(date, label = TRUE,
+                              abbr  = FALSE,
+                              week_start = 1)
   ) %>% 
   filter(post_type != "other")
+
 
 
 # 3) Add day, month, year, etc. for easy filtering
