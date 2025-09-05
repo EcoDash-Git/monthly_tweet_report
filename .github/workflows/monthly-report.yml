@@ -1,22 +1,33 @@
-# .github/workflows/monthly_twitter_sentiment.yml
-name: Monthly Twitter Sentiment Report   # ← renamed
+name: Monthly Twitter Sentiment Report
 
 on:
-  # Run at 08:30 UTC on the *first* day of every month
   schedule:
-    - cron: '30 8 1 * *'     # min hr dom mon dow
-  # Manual run from the Actions tab
+    - cron: '30 8 1 * *'     # first day of month @ 08:30 UTC
   workflow_dispatch:
 
 jobs:
   build-report:
     runs-on: ubuntu-latest
 
+    env:
+      # Supabase
+      SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      # Mailjet (kept, but unused unless SEND_EMAIL=true)
+      MJ_API_KEY:            ${{ secrets.MJ_API_KEY }}
+      MJ_API_SECRET:         ${{ secrets.MJ_API_SECRET }}
+      MAIL_FROM:             ${{ vars.MAIL_FROM }}
+      MAIL_TO:               ${{ vars.MAIL_TO }}
+      # Email toggle
+      SEND_EMAIL:            "false"
+      CI: true
+      R_KEEP_PKG_SOURCE: no
+
     steps:
-      # 1) Checkout repository ------------------------------------------------
+      # 1) Checkout repository
       - uses: actions/checkout@v4
 
-      # 2) System libraries needed by pagedown + some R packages --------------
+      # 2) System libraries for pagedown + fonts
       - name: Install system libraries
         run: |
           sudo apt-get update -y
@@ -24,29 +35,33 @@ jobs:
             ghostscript \
             libssl-dev libxml2-dev libcurl4-openssl-dev \
             libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev \
-            libpng-dev libtiff5-dev
+            libpng-dev libtiff5-dev libjpeg-dev libnss3 libxss1
 
-      # 3) Install Pandoc (for rmarkdown) -------------------------------------
+      # 3) Pandoc
       - uses: r-lib/actions/setup-pandoc@v2
-        with:
-          pandoc-version: '3.1.12.2'     # optional—omit for default
 
-      # 4) Set up R (uses Posit binary cache) ---------------------------------
+      # 4) R
       - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
 
-      # 5) Run the monthly pipeline -------------------------------------------
+      # 5) Headless Chrome for pagedown
+      - name: Install headless Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          install-dependencies: true
+          chrome-version: stable
+
+      # 5b) Expose CHROME_BIN for R
+      - name: Export CHROME_BIN
+        run: echo "CHROME_BIN=${{ steps.chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+
+      # 6) Run the monthly pipeline
       - name: Run monthly sentiment script
-        env:
-          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-          MJ_API_KEY:            ${{ secrets.MJ_API_KEY }}
-          MJ_API_SECRET:         ${{ secrets.MJ_API_SECRET }}
-          MAIL_FROM:             ${{ vars.MAIL_FROM }}
-          MAIL_TO:               ${{ vars.MAIL_TO }}
-        run: |
-          Rscript run_monthly_sentiment.R
+        run: Rscript run_monthly_sentiment.R
 
-      # 6) Archive the generated report (HTML + PDF) ---------------------------
+      # 7) Archive generated HTML + PDF
       - name: Upload report artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,3 +70,5 @@ jobs:
           path: |
             *.pdf
             *.html
+          if-no-files-found: warn
+
