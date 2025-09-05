@@ -3,55 +3,56 @@
 # run_monthly_sentiment.R
 # ---------------------------------------------------------------------------
 # * Renders monthly_tweet_report.Rmd  → HTML
-# * Prints the HTML to PDF (pagedown + headless Chrome)
-# * Uploads the PDF to Supabase    (bucket: monthly‑sentiment/YYYYMM/…)
-# * Emails the PDF via Mailjet
+# * Prints HTML to PDF (pagedown + headless Chrome)
+# * Uploads PDF to Supabase (bucket: monthly-sentiment/YYYYMM/…)
+# * [Optional] Emails the PDF via Mailjet when SEND_EMAIL=true
 # ---------------------------------------------------------------------------
 
-## ── 0. Packages ────────────────────────────────────────────────────────────
+## ── 0) Packages ────────────────────────────────────────────────────────────
 required <- c(
   "tidyverse","tidytext","lubridate","stringi","kableExtra",
   "forcats","widyr","ggraph","igraph",
-  "data.table",
-  "sentimentr",
+  "data.table","sentimentr",
   "rmarkdown","pagedown","knitr",
   "jsonlite","httr2","DBI","RPostgres","base64enc"
 )
-invisible(lapply(required, \(p){
+invisible(lapply(required, function(p){
   if (!requireNamespace(p, quietly = TRUE)) install.packages(p, quiet = TRUE)
   library(p, character.only = TRUE)
 }))
 `%||%` <- function(a,b){ if (isTRUE(is.na(a)) || (is.character(a)&&!nzchar(a))) b else a }
 
-## ── 1. Config / env vars ───────────────────────────────────────────────────
-# MONTH_START may be blank. If blank, use *previous* month so the report
-# always covers a full calendar month even when run on the 1st.
+## ── 1) Config / env vars ───────────────────────────────────────────────────
+# Toggle email step (default OFF)
+SEND_EMAIL <- tolower(Sys.getenv("SEND_EMAIL","false")) %in% c("1","true","yes","on")
+
+# MONTH_START may be blank. If blank, use previous full calendar month.
 m_env        <- Sys.getenv("MONTH_START")
 month_start  <- suppressWarnings(as.Date(m_env)) %||%
-  lubridate::floor_date(Sys.Date() - 1, unit = "month") -   # previous month’s 1st
-  months(0)                                                # same day handling
-month_end    <- lubridate::ceiling_date(month_start, "month") - 1        # last day of month
+  lubridate::floor_date(Sys.Date() - 1, unit = "month")
+month_end    <- lubridate::ceiling_date(month_start, "month") - 1
 
 RMD_FILE <- "monthly_tweet_report.Rmd"
 HTML_OUT <- "monthly_tweet_report.html"
 PDF_OUT  <- "monthly_tweet_report.pdf"
 
+# Supabase
 SB_URL         <- Sys.getenv("SUPABASE_URL")
 SB_STORAGE_KEY <- Sys.getenv("SUPABASE_SERVICE_ROLE")
 SB_BUCKET      <- "monthly-sentiment"
 
+# Mailjet (only required if emailing)
 MJ_API_KEY    <- Sys.getenv("MJ_API_KEY")
 MJ_API_SECRET <- Sys.getenv("MJ_API_SECRET")
 MAIL_FROM     <- Sys.getenv("MAIL_FROM")
 MAIL_TO       <- Sys.getenv("MAIL_TO")
 
-stopifnot(
-  SB_URL      != "", SB_STORAGE_KEY != "",
-  MJ_API_KEY  != "", MJ_API_SECRET  != "",
-  MAIL_FROM   != "", MAIL_TO        != ""
-)
+# Require Supabase creds always
+stopifnot(SB_URL != "", SB_STORAGE_KEY != "")
+# Only require Mailjet creds if emailing
+if (SEND_EMAIL) stopifnot(MJ_API_KEY != "", MJ_API_SECRET != "", MAIL_FROM != "", MAIL_TO != "")
 
-## ── 2. Knit Rmd → HTML ─────────────────────────────────────────────────────
+## ── 2) Knit Rmd → HTML ─────────────────────────────────────────────────────
 rmarkdown::render(
   input       = RMD_FILE,
   output_file = HTML_OUT,
@@ -59,7 +60,7 @@ rmarkdown::render(
   quiet       = TRUE
 )
 
-## ── 3. HTML → PDF (pagedown) ───────────────────────────────────────────────
+## ── 3) HTML → PDF (pagedown) ───────────────────────────────────────────────
 chrome_path <- Sys.getenv("CHROME_BIN")
 if (!nzchar(chrome_path)) chrome_path <- pagedown::find_chrome()
 
@@ -72,8 +73,8 @@ pagedown::chrome_print(
 )
 if (!file.exists(PDF_OUT)) stop("❌ PDF not generated – ", PDF_OUT, " missing")
 
-## ── 4. Upload PDF to Supabase storage ──────────────────────────────────────
-iso_folder <- format(month_start, "%Y%m")                       # e.g. 202507
+## ── 4) Upload PDF to Supabase storage ──────────────────────────────────────
+iso_folder <- format(month_start, "%Y%m")  # e.g. 202507
 file_name  <- sprintf("%s_to_%s.pdf",
                       format(month_start,"%Y-%m-%d"),
                       format(month_end  ,"%Y-%m-%d"))
@@ -95,39 +96,39 @@ request(upload_url) |>
 
 cat("✔ Uploaded to Supabase:", object_path, "\n")
 
-## ── 5. Email the PDF via Mailjet ───────────────────────────────────────────
-if (str_detect(MAIL_FROM, "<.+@.+>")) {
-  from_email <- str_remove_all(str_extract(MAIL_FROM, "<.+@.+>"), "[<>]")
-  from_name  <- str_trim(str_remove(MAIL_FROM, "<.+@.+>$"))
-} else {
-  from_email <- MAIL_FROM
-  from_name  <- "Sentiment Bot"
-}
+## ── 5) Email the PDF via Mailjet (optional) ────────────────────────────────
+if (SEND_EMAIL) {
+  if (str_detect(MAIL_FROM, "<.+@.+>")) {
+    from_email <- str_remove_all(str_extract(MAIL_FROM, "<.+@.+>"), "[<>]")
+    from_name  <- str_trim(str_remove(MAIL_FROM, "<.+@.+>$"))
+  } else {
+    from_email <- MAIL_FROM
+    from_name  <- "Sentiment Bot"
+  }
 
-mj_resp <- request("https://api.mailjet.com/v3.1/send") |>
-  req_auth_basic(MJ_API_KEY, MJ_API_SECRET) |>
-  req_body_json(list(
-    Messages = list(list(
-      From        = list(Email = from_email, Name = from_name),
-      To          = list(list(Email = MAIL_TO)),
-      Subject     = sprintf(
-        "Monthly Sentiment Report – %s",
-        format(month_start, "%B %Y")
-      ),
-      TextPart    = "Attached is the monthly Twitter sentiment report.",
-      Attachments = list(list(
-        ContentType   = "application/pdf",
-        Filename      = file_name,
-        Base64Content = base64enc::base64encode(PDF_OUT)
+  mj_resp <- request("https://api.mailjet.com/v3.1/send") |>
+    req_auth_basic(MJ_API_KEY, MJ_API_SECRET) |>
+    req_body_json(list(
+      Messages = list(list(
+        From        = list(Email = from_email, Name = from_name),
+        To          = list(list(Email = MAIL_TO)),
+        Subject     = sprintf("Monthly Sentiment Report – %s", format(month_start, "%B %Y")),
+        TextPart    = "Attached is the monthly Twitter sentiment report.",
+        Attachments = list(list(
+          ContentType   = "application/pdf",
+          Filename      = file_name,
+          Base64Content = base64enc::base64encode(PDF_OUT)
+        ))
       ))
-    ))
-  )) |>
-  req_perform()
+    )) |>
+    req_perform()
 
-if (resp_status(mj_resp) >= 300) {
-  cat("Mailjet error body:\n",
-      resp_body_string(mj_resp, encoding = "UTF-8"), "\n")
-  stop("❌ Mailjet returned status ", resp_status(mj_resp))
+  if (resp_status(mj_resp) >= 300) {
+    cat("Mailjet error body:\n",
+        resp_body_string(mj_resp, encoding = "UTF-8"), "\n")
+    stop("❌ Mailjet returned status ", resp_status(mj_resp))
+  }
+  cat("📧 Mailjet response OK — report emailed\n")
+} else {
+  cat("↪ Skipping email step (SEND_EMAIL=false). Report generated & uploaded only.\n")
 }
-
-cat("📧  Mailjet response OK — report emailed\n")
