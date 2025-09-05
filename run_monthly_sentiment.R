@@ -11,7 +11,7 @@
 ## ── 0) Packages ────────────────────────────────────────────────────────────
 required <- c(
   "tidyverse","tidytext","lubridate","stringi","kableExtra",
-  "forcats","widyr","ggraph","igraph",
+  "forcats","widyr",
   "data.table","sentimentr",
   "rmarkdown","pagedown","knitr",
   "jsonlite","httr2","DBI","RPostgres","base64enc"
@@ -132,3 +132,4 @@ if (SEND_EMAIL) {
 } else {
   cat("↪ Skipping email step (SEND_EMAIL=false). Report generated & uploaded only.\n")
 }
+
