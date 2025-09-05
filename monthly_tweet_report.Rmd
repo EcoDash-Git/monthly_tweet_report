@@ -34,8 +34,6 @@ library(knitr)
 library(kableExtra)
 library(forcats)
 library(widyr)
-library(ggraph)
-library(igraph)
 library(data.table)
 library(sentimentr)
 library(DBI)
@@ -422,6 +420,7 @@ ggplot(emotion_by_post_type, aes(x = emotion_type, y = percent, fill = emotion_t
 
 
 ```
+
 
 
 
